@@ -1,0 +1,40 @@
+# Lista de proxies (formato: protocol://user:pass@host:port)
+# Ejemplos:
+# http://user:pass@proxy1.example.com:8080
+# https://proxy2.example.com:3128
+# socks5://proxy3.example.com:1080
+
+# Añade tus proxies aquí:
+# http://proxy1.example.com:8080
+# http://proxy2.example.com:8080 
+
+# Sample proxy list for testing
+# Format: protocol://username:password@host:port or protocol://host:port
+# Remove the # comments and add your actual proxies
+
+# HTTP proxies
+# http://proxy1.example.com:8080
+# http://user:pass@proxy2.example.com:8080
+
+# HTTPS proxies  
+# https://proxy3.example.com:8443
+# https://user:pass@proxy4.example.com:8443
+
+# SOCKS5 proxies
+# socks5://proxy5.example.com:1080
+# socks5://user:pass@proxy6.example.com:1080
+
+# Example proxies (replace with real ones)
+# http://127.0.0.1:8080
+# https://127.0.0.1:8443
+
+# Free proxy examples (replace with working ones)
+# http://185.199.229.156:7492
+# http://185.199.228.220:7492
+# http://185.199.231.45:7492
+
+# Note: Always test proxies before using in production
+# You can use services like:
+# - https://httpbin.org/ip (to test if proxy works)
+# - https://www.proxynova.com/ (to find free proxies)
+# - Paid services like Bright Data, SmartProxy, etc. 

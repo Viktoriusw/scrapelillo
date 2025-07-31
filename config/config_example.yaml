@@ -1,0 +1,293 @@
+# Configuración de Ejemplo para Scrapelillo
+# Copia este archivo como config.yaml y modifica según tus necesidades
+
+# Configuración principal de scraping
+scraping:
+  # Delay entre requests (segundos)
+  default_delay: 1.0
+  
+  # Timeout para requests (segundos)
+  timeout: 30
+  
+  # Número máximo de reintentos
+  max_retries: 3
+  
+  # User-Agent por defecto
+  user_agent: "Scrapelillo/2.0.0 (https://github.com/scrapelillo)"
+  
+  # Headers adicionales
+  headers:
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    Accept-Language: "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3"
+    Accept-Encoding: "gzip, deflate"
+    Connection: "keep-alive"
+    Upgrade-Insecure-Requests: "1"
+
+# Configuración de caché
+cache:
+  # Habilitar/deshabilitar caché
+  enabled: true
+  
+  # Tamaño máximo del caché (número de entradas)
+  max_size: 1000
+  
+  # Tiempo de vida del caché (segundos)
+  ttl: 3600
+  
+  # Comprimir datos en caché
+  compress: true
+  
+  # Directorio de caché
+  directory: "cache/"
+
+# Configuración de proxies
+proxies:
+  # Habilitar/deshabilitar uso de proxies
+  enabled: false
+  
+  # Rotación automática de proxies
+  rotation: true
+  
+  # Timeout para proxies (segundos)
+  timeout: 10
+  
+  # Archivo con lista de proxies
+  file: "config/proxies.txt"
+  
+  # Proxies específicos
+  list:
+    - "http://proxy1:8080"
+    - "http://proxy2:8080"
+    - "socks5://proxy3:1080"
+
+# Configuración de descubrimiento de URLs
+discovery:
+  # Número máximo de URLs a descubrir
+  max_urls: 1000
+  
+  # Profundidad máxima de crawling
+  max_depth: 3
+  
+  # Delay entre requests de descubrimiento
+  delay: 1.0
+  
+  # User-Agent para descubrimiento
+  user_agent: "Scrapelillo Discovery Bot"
+  
+  # Habilitar fuzzing de URLs
+  fuzzing: true
+  
+  # Respetar robots.txt
+  respect_robots: true
+  
+  # Patrones a incluir (regex)
+  include_patterns:
+    - ".*\\.html$"
+    - ".*\\.php$"
+    - ".*\\.asp$"
+    - ".*\\.jsp$"
+  
+  # Patrones a excluir (regex)
+  exclude_patterns:
+    - ".*\\.pdf$"
+    - ".*\\.jpg$"
+    - ".*\\.png$"
+    - ".*\\.gif$"
+    - ".*logout.*"
+    - ".*admin.*"
+
+# Configuración de análisis de HTML
+html_analysis:
+  # Detectar tablas automáticamente
+  detect_tables: true
+  
+  # Detectar listas automáticamente
+  detect_lists: true
+  
+  # Detectar formularios automáticamente
+  detect_forms: true
+  
+  # Detectar enlaces automáticamente
+  detect_links: true
+  
+  # Detectar imágenes automáticamente
+  detect_images: true
+  
+  # Extraer metadatos
+  extract_metadata: true
+  
+  # Analizar estructura semántica
+  semantic_analysis: true
+
+# Configuración de exportación
+export:
+  # Formato por defecto
+  default_format: "csv"
+  
+  # Directorio de salida
+  output_directory: "output/"
+  
+  # Incluir timestamp en nombres de archivo
+  include_timestamp: true
+  
+  # Comprimir archivos de salida
+  compress: false
+  
+  # Codificación de archivos
+  encoding: "utf-8"
+
+# Configuración de scheduler
+scheduler:
+  # Habilitar scheduler
+  enabled: true
+  
+  # Archivo de base de datos del scheduler
+  database: "scheduler.db"
+  
+  # Ejecutar en segundo plano
+  background: true
+  
+  # Log de tareas programadas
+  log_tasks: true
+
+# Configuración de métricas
+metrics:
+  # Habilitar recolección de métricas
+  enabled: true
+  
+  # Archivo de base de datos de métricas
+  database: "metrics.db"
+  
+  # Intervalo de guardado de métricas (segundos)
+  save_interval: 60
+  
+  # Métricas a recolectar
+  collect:
+    - "requests_per_minute"
+    - "success_rate"
+    - "error_rate"
+    - "response_time"
+    - "memory_usage"
+    - "cpu_usage"
+
+# Configuración de logging
+logging:
+  # Nivel de log
+  level: "INFO"
+  
+  # Archivo de log
+  file: "logs/scrapelillo.log"
+  
+  # Tamaño máximo del archivo de log (MB)
+  max_size: 10
+  
+  # Número de archivos de backup
+  backup_count: 5
+  
+  # Formato de log
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Configuración de plugins
+plugins:
+  # Directorio de plugins
+  directory: "plugins/"
+  
+  # Cargar plugins automáticamente
+  auto_load: true
+  
+  # Plugins habilitados
+  enabled:
+    - "example_plugin"
+  
+  # Configuración específica de plugins
+  config:
+    example_plugin:
+      setting1: "value1"
+      setting2: "value2"
+
+# Configuración de seguridad
+security:
+  # Verificar certificados SSL
+  verify_ssl: true
+  
+  # Permitir redirecciones
+  allow_redirects: true
+  
+  # Número máximo de redirecciones
+  max_redirects: 5
+  
+  # Headers de seguridad
+  security_headers:
+    X-Requested-With: "XMLHttpRequest"
+    X-Frame-Options: "DENY"
+
+# Configuración de rendimiento
+performance:
+  # Número de workers para procesamiento paralelo
+  workers: 4
+  
+  # Tamaño del pool de conexiones
+  connection_pool_size: 10
+  
+  # Timeout de conexión
+  connection_timeout: 30
+  
+  # Tamaño máximo de respuesta (MB)
+  max_response_size: 50
+  
+  # Comprimir requests
+  compress_requests: true
+
+# Configuración de notificaciones
+notifications:
+  # Habilitar notificaciones
+  enabled: false
+  
+  # Email
+  email:
+    enabled: false
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    username: "tu_email@gmail.com"
+    password: "tu_password"
+    recipients:
+      - "admin@example.com"
+  
+  # Telegram
+  telegram:
+    enabled: false
+    bot_token: "tu_bot_token"
+    chat_id: "tu_chat_id"
+  
+  # Discord
+  discord:
+    enabled: false
+    webhook_url: "tu_webhook_url"
+
+# Configuración de base de datos
+database:
+  # Tipo de base de datos
+  type: "sqlite"
+  
+  # Archivo de base de datos
+  file: "scrapelillo.db"
+  
+  # Crear backup automático
+  backup: true
+  
+  # Intervalo de backup (horas)
+  backup_interval: 24
+
+# Configuración de desarrollo
+development:
+  # Modo debug
+  debug: false
+  
+  # Mostrar información detallada
+  verbose: false
+  
+  # Ejecutar tests automáticamente
+  auto_test: false
+  
+  # Hot reload de plugins
+  hot_reload: true 

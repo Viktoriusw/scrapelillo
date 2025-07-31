@@ -1,0 +1,194 @@
+# Professional Web Scraper Configuration
+# This file contains all configuration settings for the scraper
+
+# Core scraper settings
+scraper:
+  name: "ProfessionalWebScraper"
+  version: "2.0.0"
+  debug: false
+  log_level: "INFO"
+  max_workers: 10
+  timeout: 30
+  max_retries: 3
+  retry_delay: 1
+  exponential_backoff: true
+
+# Ethical scraping settings
+ethical:
+  respect_robots_txt: true
+  rate_limit: true
+  requests_per_minute: 30
+  delay_between_requests: 2.0
+  user_agent_rotation: true
+  proxy_rotation: true
+  cache_enabled: true
+  cache_ttl: 3600  # 1 hour
+
+# JavaScript rendering
+javascript:
+  enabled: true
+  engine: "playwright"  # playwright, selenium
+  headless: true
+  wait_for_selectors: []
+  wait_for_timeout: 5000
+  screenshot_on_error: true
+  viewport:
+    width: 1920
+    height: 1080
+
+# Proxy settings
+proxy:
+  enabled: true
+  rotation_strategy: "round_robin"  # round_robin, random, weighted
+  timeout: 10
+  max_failures: 3
+  sources:
+    - file: "config/proxies.txt"
+    - env: "PROXY_LIST"
+  authentication:
+    username_env: "PROXY_USER"
+    password_env: "PROXY_PASS"
+
+# User agent settings
+user_agent:
+  rotation_enabled: true
+  strategy: "random"  # random, round_robin, weighted
+  custom_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# Caching settings
+cache:
+  enabled: true
+  backend: "sqlite"  # sqlite, redis, memory
+  ttl: 3600  # 1 hour
+  compression: true
+  cleanup_interval: 86400  # 24 hours
+  max_size: "1GB"
+  change_detection: true
+  hash_algorithm: "sha256"
+
+# Database settings
+database:
+  type: "sqlite"  # sqlite, postgresql, mysql
+  url: "sqlite:///scraper_data.db"
+  echo: false
+  pool_size: 10
+  max_overflow: 20
+
+# Structured data extraction
+structured_data:
+  enabled: true
+  formats:
+    - "json-ld"
+    - "microdata"
+    - "rdfa"
+    - "microformats"
+  clean_data: true
+  validate_schema: true
+  filter_by_type: []
+  export_format: "json"
+
+# Crawler settings
+crawler:
+  enabled: true
+  max_depth: 3
+  max_pages: 100
+  follow_links: true
+  respect_nofollow: true
+  allowed_domains: []
+  excluded_patterns:
+    - "*.pdf"
+    - "*.jpg"
+    - "*.png"
+    - "mailto:*"
+    - "tel:*"
+  pagination:
+    enabled: true
+    selectors:
+      - ".pagination .next"
+      - ".pagination a[rel='next']"
+      - "a:contains('Next')"
+    max_pages: 10
+
+# ETL pipeline settings
+etl:
+  enabled: true
+  batch_size: 100
+  transform_rules: []
+  validation_rules: []
+  output_formats:
+    - "json"
+    - "csv"
+    - "excel"
+    - "parquet"
+  data_quality:
+    check_duplicates: true
+    validate_required_fields: true
+    clean_html: true
+
+# Scheduling settings
+scheduler:
+  enabled: true
+  timezone: "UTC"
+  jobs:
+    - name: "daily_scrape"
+      schedule: "0 9 * * *"  # Daily at 9 AM
+      urls: []
+      enabled: true
+  notifications:
+    email:
+      enabled: false
+      smtp_server: "smtp.gmail.com"
+      smtp_port: 587
+      username: ""
+      password: ""
+      recipients: []
+    webhook:
+      enabled: false
+      url: ""
+      headers: {}
+
+# Metrics and monitoring
+metrics:
+  enabled: true
+  collection_interval: 60  # seconds
+  retention_days: 30
+  alerts:
+    error_rate_threshold: 0.1
+    response_time_threshold: 5000
+    cache_hit_rate_threshold: 0.8
+  dashboard:
+    enabled: true
+    port: 8080
+    host: "localhost"
+
+# Export settings
+export:
+  default_format: "json"
+  compression: true
+  include_metadata: true
+  timestamp_format: "%Y-%m-%d_%H-%M-%S"
+  output_directory: "exports"
+
+# Plugin settings
+plugins:
+  enabled: true
+  directory: "plugins"
+  auto_load: true
+  required_plugins: []
+
+# Testing settings
+testing:
+  mock_responses: true
+  test_urls: []
+  coverage_threshold: 80
+  parallel_tests: true
+
+# GUI settings
+gui:
+  theme: "light"
+  window_size: "1200x800"
+  auto_save: true
+  show_advanced_options: false 
