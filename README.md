@@ -33,7 +33,7 @@ Scrapelillo es una plataforma avanzada de web scraping con interfaz gráfica que
 
 ### 1. Clonar el Repositorio
 ```bash
-git clone <repository-url>
+git clone https://github.com/Viktoriusw/scrapelillo
 cd scrapelillo
 ```
 
@@ -366,5 +366,6 @@ Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más det
 - 📝 Documentación inicial
 
 ---
+
 
 **Scrapelillo** - Potencia tu web scraping con inteligencia artificial y automatización avanzada. 
