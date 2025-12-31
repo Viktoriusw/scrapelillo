@@ -29,7 +29,7 @@ from scraper_core.structured_data_extractor import StructuredDataExtractor
 from scraper_core.crawler import IntelligentCrawler
 from scraper_core.etl_pipeline import ETLPipeline
 from scraper_core.simple_scheduler import SimpleTaskScheduler
-from scraper_core.plugin_manager import PluginManager
+# Plugin system removed - proxy management is now a native feature
 try:
     from scraper_core.html_analyzer import EnhancedHTMLAnalyzer
 except ImportError:
@@ -741,6 +741,1029 @@ class URLListManager(tk.Toplevel):
                 messagebox.showerror("Error", f"Error al reemplazar URLs: {str(e)}")
 
 
+# ========== PROXY MANAGEMENT PANEL (NATIVE) ==========
+
+class ProxyValidationThread(threading.Thread):
+    """Thread to validate proxies in the background"""
+
+    def __init__(self, proxy_manager, proxy_list, callback, progress_callback):
+        super().__init__()
+        self.proxy_manager = proxy_manager
+        self.proxy_list = proxy_list
+        self.callback = callback
+        self.progress_callback = progress_callback
+        self.running = True
+        self.daemon = True
+
+    def run(self):
+        """Execute proxy validation"""
+        results = {}
+        total = len(self.proxy_list)
+
+        for i, proxy in enumerate(self.proxy_list):
+            if not self.running:
+                break
+
+            try:
+                # Validate proxy using the manager
+                is_valid = self.proxy_manager.validate_proxy_sync(proxy)
+
+                # Use proxy URL as key
+                proxy_url = proxy.url
+                results[proxy_url] = {
+                    'valid': is_valid,
+                    'timestamp': datetime.now().isoformat(),
+                    'response_time': proxy.speed if proxy.speed else 0,
+                    'proxy_obj': proxy
+                }
+
+                # Update progress
+                progress = int((i + 1) / total * 100)
+                message = f"Validating {proxy_url}..."
+                self.progress_callback(progress, message)
+
+            except Exception as e:
+                proxy_url = proxy.url
+                results[proxy_url] = {
+                    'valid': False,
+                    'error': str(e),
+                    'timestamp': datetime.now().isoformat(),
+                    'proxy_obj': proxy
+                }
+
+        # Call completion callback
+        self.callback(results)
+
+    def stop(self):
+        """Stop validation"""
+        self.running = False
+
+
+class ProxyManagementPanel(tk.Toplevel):
+    """Professional proxy management panel with tkinter"""
+
+    def __init__(self, proxy_manager, parent=None):
+        super().__init__(parent)
+        self.proxy_manager = proxy_manager
+        self.validation_thread = None
+
+        # Configure window
+        self.title("Proxy Management - Scrapelillo")
+        self.geometry("1000x700")
+
+        # Create UI
+        self.setup_ui()
+
+        # Load initial data
+        self.load_proxy_config()
+        self.refresh_proxy_list()
+
+    def setup_ui(self):
+        """Setup the user interface"""
+        # Main container
+        main_frame = ttk.Frame(self, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create notebook (tabs)
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        # Create tabs
+        self.create_proxy_list_tab()
+        self.create_configuration_tab()
+        self.create_validation_tab()
+        self.create_statistics_tab()
+        self.create_import_export_tab()
+
+    def create_proxy_list_tab(self):
+        """Tab to manage proxy list"""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="📋 Proxy List")
+
+        # Controls
+        controls_frame = ttk.Frame(tab)
+        controls_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Button(controls_frame, text="➕ Add Proxy",
+                  command=self.add_proxy).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_frame, text="🗑️ Remove Selected",
+                  command=self.remove_selected_proxy).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_frame, text="🗑️ Clear All",
+                  command=self.clear_all_proxies).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_frame, text="🔄 Refresh List",
+                  command=self.refresh_proxy_list).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_frame, text="🧪 Test Selected",
+                  command=self.test_selected_proxy).pack(side=tk.LEFT, padx=2)
+
+        # Proxy input
+        input_frame = ttk.Frame(tab)
+        input_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(input_frame, text="New Proxy:").pack(side=tk.LEFT, padx=(0, 5))
+
+        self.proxy_input = ttk.Entry(input_frame)
+        self.proxy_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.proxy_input.insert(0, "http://user:pass@host:port or host:port")
+        self.proxy_input.bind('<FocusIn>', lambda e: self.proxy_input.delete(0, tk.END)
+                             if self.proxy_input.get().startswith("http://user") else None)
+
+        ttk.Button(input_frame, text="➕ Add",
+                  command=self.add_single_proxy).pack(side=tk.LEFT)
+
+        # Proxy table
+        table_frame = ttk.Frame(tab)
+        table_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Scrollbars
+        vsb = ttk.Scrollbar(table_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        hsb = ttk.Scrollbar(table_frame, orient="horizontal")
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Treeview
+        columns = ('Proxy', 'Status', 'Last Used', 'Failures', 'Speed', 'Country')
+        self.proxy_table = ttk.Treeview(table_frame, columns=columns,
+                                       show='headings',
+                                       yscrollcommand=vsb.set,
+                                       xscrollcommand=hsb.set)
+
+        vsb.config(command=self.proxy_table.yview)
+        hsb.config(command=self.proxy_table.xview)
+
+        # Configure columns
+        self.proxy_table.heading('Proxy', text='Proxy')
+        self.proxy_table.heading('Status', text='Status')
+        self.proxy_table.heading('Last Used', text='Last Used')
+        self.proxy_table.heading('Failures', text='Failures')
+        self.proxy_table.heading('Speed', text='Speed')
+        self.proxy_table.heading('Country', text='Country')
+
+        self.proxy_table.column('Proxy', width=300)
+        self.proxy_table.column('Status', width=100)
+        self.proxy_table.column('Last Used', width=150)
+        self.proxy_table.column('Failures', width=80)
+        self.proxy_table.column('Speed', width=80)
+        self.proxy_table.column('Country', width=80)
+
+        self.proxy_table.pack(fill=tk.BOTH, expand=True)
+
+        # Status bar
+        self.status_label = ttk.Label(tab, text="Ready", relief=tk.SUNKEN)
+        self.status_label.pack(fill=tk.X, pady=(10, 0))
+
+    def create_configuration_tab(self):
+        """Tab for proxy configuration"""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="⚙️ Configuration")
+
+        # Enable/Disable proxies
+        enable_frame = ttk.LabelFrame(tab, text="Enable Proxies", padding=10)
+        enable_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.enable_proxies_var = tk.BooleanVar()
+        ttk.Checkbutton(enable_frame, text="Enable proxy rotation",
+                       variable=self.enable_proxies_var,
+                       command=self.toggle_proxy_enabled).pack(anchor=tk.W)
+
+        # Rotation strategy
+        strategy_frame = ttk.LabelFrame(tab, text="Rotation Strategy", padding=10)
+        strategy_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(strategy_frame, text="Strategy:").pack(anchor=tk.W)
+        self.strategy_var = tk.StringVar()
+        strategy_combo = ttk.Combobox(strategy_frame, textvariable=self.strategy_var,
+                                     values=["round_robin", "random", "weighted"],
+                                     state="readonly")
+        strategy_combo.pack(fill=tk.X, pady=(5, 0))
+        strategy_combo.bind('<<ComboboxSelected>>', lambda e: self.change_rotation_strategy())
+
+        # Timeout settings
+        timeout_frame = ttk.LabelFrame(tab, text="Timeout Configuration", padding=10)
+        timeout_frame.pack(fill=tk.X, pady=(0, 10))
+
+        timeout_inner = ttk.Frame(timeout_frame)
+        timeout_inner.pack(fill=tk.X)
+
+        ttk.Label(timeout_inner, text="Timeout (seconds):").pack(side=tk.LEFT)
+        self.timeout_var = tk.IntVar(value=10)
+        timeout_spin = ttk.Spinbox(timeout_inner, from_=1, to=60,
+                                  textvariable=self.timeout_var,
+                                  command=self.change_timeout, width=10)
+        timeout_spin.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Failure settings
+        failure_frame = ttk.LabelFrame(tab, text="Failure Configuration", padding=10)
+        failure_frame.pack(fill=tk.X, pady=(0, 10))
+
+        failure_inner = ttk.Frame(failure_frame)
+        failure_inner.pack(fill=tk.X)
+
+        ttk.Label(failure_inner, text="Max failures before deactivation:").pack(side=tk.LEFT)
+        self.max_failures_var = tk.IntVar(value=3)
+        failures_spin = ttk.Spinbox(failure_inner, from_=1, to=10,
+                                   textvariable=self.max_failures_var,
+                                   command=self.change_max_failures, width=10)
+        failures_spin.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Validation settings
+        validation_frame = ttk.LabelFrame(tab, text="Validation Configuration", padding=10)
+        validation_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(validation_frame, text="Validation URL:").pack(anchor=tk.W)
+        self.validation_url_var = tk.StringVar(value="http://httpbin.org/ip")
+        validation_entry = ttk.Entry(validation_frame, textvariable=self.validation_url_var)
+        validation_entry.pack(fill=tk.X, pady=(5, 0))
+        validation_entry.bind('<FocusOut>', lambda e: self.change_validation_url())
+
+        # Apply button
+        ttk.Button(tab, text="💾 Apply Configuration",
+                  command=self.apply_configuration).pack(pady=(10, 0))
+
+    def create_validation_tab(self):
+        """Tab for proxy validation"""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="🔍 Validation")
+
+        # Validation controls
+        controls_frame = ttk.Frame(tab)
+        controls_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Button(controls_frame, text="🔍 Validate All",
+                  command=self.validate_all_proxies).pack(side=tk.LEFT, padx=2)
+        ttk.Button(controls_frame, text="🔍 Validate Selected",
+                  command=self.validate_selected_proxies).pack(side=tk.LEFT, padx=2)
+
+        self.stop_validation_btn = ttk.Button(controls_frame, text="⏹️ Stop Validation",
+                                             command=self.stop_validation, state=tk.DISABLED)
+        self.stop_validation_btn.pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(controls_frame, text="❓ Help",
+                  command=self.show_validation_help).pack(side=tk.LEFT, padx=2)
+
+        # Progress bar
+        self.validation_progress_var = tk.DoubleVar()
+        self.validation_progress = ttk.Progressbar(tab, variable=self.validation_progress_var,
+                                                   maximum=100)
+        # Initially hidden
+
+        # Validation results
+        result_frame = ttk.Frame(tab)
+        result_frame.pack(fill=tk.BOTH, expand=True)
+
+        vsb = ttk.Scrollbar(result_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.validation_text = tk.Text(result_frame, yscrollcommand=vsb.set, wrap=tk.WORD)
+        self.validation_text.pack(fill=tk.BOTH, expand=True)
+        vsb.config(command=self.validation_text.yview)
+
+        self.validation_text.insert('1.0', "Validation results will appear here...")
+        self.validation_text.config(state=tk.DISABLED)
+
+    def create_statistics_tab(self):
+        """Tab for proxy statistics"""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="📊 Statistics")
+
+        # Refresh button
+        ttk.Button(tab, text="🔄 Refresh Statistics",
+                  command=self.refresh_statistics).pack(pady=(0, 10))
+
+        # Statistics display
+        stats_frame = ttk.Frame(tab)
+        stats_frame.pack(fill=tk.BOTH, expand=True)
+
+        vsb = ttk.Scrollbar(stats_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.stats_text = tk.Text(stats_frame, yscrollcommand=vsb.set, wrap=tk.WORD)
+        self.stats_text.pack(fill=tk.BOTH, expand=True)
+        vsb.config(command=self.stats_text.yview)
+
+        self.stats_text.insert('1.0', "Statistics will appear here...")
+        self.stats_text.config(state=tk.DISABLED)
+
+    def create_import_export_tab(self):
+        """Tab for importing/exporting proxies"""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="📤 Import/Export")
+
+        # Import controls
+        import_frame = ttk.LabelFrame(tab, text="Import Proxies", padding=10)
+        import_frame.pack(fill=tk.X, pady=(0, 10))
+
+        import_btn_frame = ttk.Frame(import_frame)
+        import_btn_frame.pack(fill=tk.X)
+
+        ttk.Button(import_btn_frame, text="📁 Import from File",
+                  command=self.import_from_file).pack(side=tk.LEFT, padx=2)
+        ttk.Button(import_btn_frame, text="📝 Import from Text",
+                  command=self.import_from_text).pack(side=tk.LEFT, padx=2)
+
+        # Export controls
+        export_frame = ttk.LabelFrame(tab, text="Export Proxies", padding=10)
+        export_frame.pack(fill=tk.X, pady=(0, 10))
+
+        export_btn_frame = ttk.Frame(export_frame)
+        export_btn_frame.pack(fill=tk.X)
+
+        ttk.Button(export_btn_frame, text="💾 Export to File",
+                  command=self.export_to_file).pack(side=tk.LEFT, padx=2)
+        ttk.Button(export_btn_frame, text="📋 Copy to Clipboard",
+                  command=self.export_to_clipboard).pack(side=tk.LEFT, padx=2)
+
+        # Bulk input
+        bulk_frame = ttk.LabelFrame(tab, text="Bulk Input", padding=10)
+        bulk_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(bulk_frame, text="Paste a list of proxies (one per line):").pack(anchor=tk.W)
+
+        text_frame = ttk.Frame(bulk_frame)
+        text_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
+
+        vsb = ttk.Scrollbar(text_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.bulk_input = tk.Text(text_frame, height=8, yscrollcommand=vsb.set, wrap=tk.WORD)
+        self.bulk_input.pack(fill=tk.BOTH, expand=True)
+        vsb.config(command=self.bulk_input.yview)
+
+        bulk_btn_frame = ttk.Frame(bulk_frame)
+        bulk_btn_frame.pack(fill=tk.X)
+
+        ttk.Button(bulk_btn_frame, text="➕ Add All",
+                  command=self.add_bulk_proxies).pack(side=tk.LEFT, padx=2)
+        ttk.Button(bulk_btn_frame, text="🗑️ Clear",
+                  command=self.clear_bulk_input).pack(side=tk.LEFT, padx=2)
+
+    # Action methods
+    def add_proxy(self):
+        """Add proxy manually using dialog"""
+        from tkinter.simpledialog import askstring
+        proxy = askstring("Add Proxy",
+                         "Enter proxy (format: host:port or http://user:pass@host:port):")
+        if proxy and proxy.strip():
+            self.add_single_proxy_to_manager(proxy.strip())
+
+    def add_single_proxy(self):
+        """Add proxy from input field"""
+        proxy = self.proxy_input.get().strip()
+        if proxy and not proxy.startswith("http://user"):
+            self.add_single_proxy_to_manager(proxy)
+            self.proxy_input.delete(0, tk.END)
+            self.proxy_input.insert(0, "http://user:pass@host:port or host:port")
+
+    def add_single_proxy_to_manager(self, proxy):
+        """Add proxy to manager with format validation"""
+        try:
+            if not self.proxy_manager:
+                messagebox.showerror("Error", "Proxy manager not available")
+                return
+
+            # Validate basic proxy format
+            proxy = proxy.strip()
+            if not proxy:
+                messagebox.showerror("Error", "Proxy cannot be empty")
+                return
+
+            # Add protocol if not present
+            if not proxy.startswith(('http://', 'https://', 'socks4://', 'socks5://')):
+                if '@' in proxy:
+                    proxy = f"http://{proxy}"
+                else:
+                    proxy = f"http://{proxy}"
+
+            self.proxy_manager.add_proxy(proxy)
+            self.refresh_proxy_list()
+            self.status_label.config(text=f"Proxy added: {proxy}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error adding proxy: {str(e)}")
+
+    def remove_selected_proxy(self):
+        """Remove selected proxy"""
+        selection = self.proxy_table.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "No proxy selected")
+            return
+
+        item = self.proxy_table.item(selection[0])
+        proxy = item['values'][0]  # First column is proxy URL
+
+        try:
+            if self.proxy_manager:
+                self.proxy_manager.remove_proxy(proxy)
+                self.refresh_proxy_list()
+                self.status_label.config(text=f"Proxy deleted: {proxy}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error deleting proxy: {str(e)}")
+
+    def clear_all_proxies(self):
+        """Clear all proxies"""
+        result = messagebox.askyesno("Confirm",
+                                     "Are you sure you want to delete all proxies?")
+
+        if result:
+            try:
+                if self.proxy_manager:
+                    self.proxy_manager.proxies.clear()
+                    self.refresh_proxy_list()
+                    self.status_label.config(text="All proxies deleted")
+            except Exception as e:
+                messagebox.showerror("Error", f"Error clearing proxies: {str(e)}")
+
+    def refresh_proxy_list(self):
+        """Update proxy list with detailed information"""
+        try:
+            if not self.proxy_manager:
+                self.proxy_table.delete(*self.proxy_table.get_children())
+                self.status_label.config(text="Proxy manager not available")
+                return
+
+            # Clear table
+            self.proxy_table.delete(*self.proxy_table.get_children())
+
+            # Add proxies
+            for proxy in self.proxy_manager.proxies:
+                # Status
+                if proxy.is_active and proxy.failure_count < self.proxy_manager.max_failures:
+                    status = "✅ Active"
+                elif proxy.failure_count >= self.proxy_manager.max_failures:
+                    status = "🚫 Disabled"
+                else:
+                    status = "⚠️ Inactive"
+
+                # Last used
+                if proxy.last_used:
+                    try:
+                        now = datetime.now()
+                        diff = now - proxy.last_used
+
+                        if diff.days > 0:
+                            last_used_text = f"{diff.days} days ago"
+                        elif diff.seconds > 3600:
+                            hours = diff.seconds // 3600
+                            last_used_text = f"{hours}h ago"
+                        elif diff.seconds > 60:
+                            minutes = diff.seconds // 60
+                            last_used_text = f"{minutes}m ago"
+                        else:
+                            last_used_text = "Just now"
+                    except Exception:
+                        last_used_text = "Date error"
+                else:
+                    last_used_text = "Never"
+
+                # Speed
+                if proxy.speed:
+                    speed_text = f"{proxy.speed:.0f}ms"
+                else:
+                    speed_text = "N/A"
+
+                # Insert row
+                self.proxy_table.insert('', 'end', values=(
+                    proxy.url,
+                    status,
+                    last_used_text,
+                    str(proxy.failure_count),
+                    speed_text,
+                    proxy.country or "N/A"
+                ))
+
+            # Update status
+            active_count = len([p for p in self.proxy_manager.proxies if p.is_active])
+            total_count = len(self.proxy_manager.proxies)
+            self.status_label.config(text=f"Proxies: {active_count}/{total_count} active")
+
+        except Exception as e:
+            logger.error(f"Error updating proxy list: {e}")
+            messagebox.showerror("Error", f"Error updating list: {str(e)}")
+
+    def toggle_proxy_enabled(self):
+        """Enable/disable proxies"""
+        try:
+            if self.proxy_manager:
+                enabled = self.enable_proxies_var.get()
+                self.proxy_manager.enabled = enabled
+                self.status_label.config(text=f"Proxies {'enabled' if enabled else 'disabled'}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error changing state: {str(e)}")
+
+    def change_rotation_strategy(self):
+        """Change rotation strategy"""
+        try:
+            if self.proxy_manager:
+                strategy = self.strategy_var.get()
+                self.proxy_manager.rotation_strategy = strategy
+                self.status_label.config(text=f"Strategy changed to: {strategy}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error changing strategy: {str(e)}")
+
+    def change_timeout(self):
+        """Change timeout"""
+        try:
+            if self.proxy_manager:
+                timeout = self.timeout_var.get()
+                self.proxy_manager.timeout = timeout
+                self.status_label.config(text=f"Timeout changed to: {timeout}s")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error changing timeout: {str(e)}")
+
+    def change_max_failures(self):
+        """Change max failures"""
+        try:
+            if self.proxy_manager:
+                max_failures = self.max_failures_var.get()
+                self.proxy_manager.max_failures = max_failures
+                self.status_label.config(text=f"Max failures changed to: {max_failures}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error changing max failures: {str(e)}")
+
+    def change_validation_url(self):
+        """Change validation URL"""
+        try:
+            if self.proxy_manager:
+                url = self.validation_url_var.get()
+                self.proxy_manager.validation_url = url
+                self.status_label.config(text=f"Validation URL changed")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error changing validation URL: {str(e)}")
+
+    def apply_configuration(self):
+        """Apply configuration"""
+        try:
+            # Apply all configuration changes
+            self.change_rotation_strategy()
+            self.change_timeout()
+            self.change_max_failures()
+            self.change_validation_url()
+
+            self.status_label.config(text="Configuration applied")
+            messagebox.showinfo("Success", "Configuration applied successfully")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error applying configuration: {str(e)}")
+
+    def validate_all_proxies(self):
+        """Validate all proxies"""
+        if not self.proxy_manager or not self.proxy_manager.proxies:
+            messagebox.showwarning("Warning", "No proxies to validate")
+            return
+
+        self.start_validation(self.proxy_manager.proxies)
+
+    def validate_selected_proxies(self):
+        """Validate selected proxies"""
+        try:
+            selection = self.proxy_table.selection()
+            if not selection:
+                messagebox.showwarning("Warning", "No proxies selected")
+                return
+
+            if not self.proxy_manager or not self.proxy_manager.proxies:
+                messagebox.showwarning("Error", "No proxies available for validation")
+                return
+
+            # Get selected proxies
+            selected_urls = [self.proxy_table.item(item)['values'][0] for item in selection]
+            selected_proxies = [p for p in self.proxy_manager.proxies if p.url in selected_urls]
+
+            if selected_proxies:
+                self.start_validation(selected_proxies)
+            else:
+                messagebox.showwarning("Error", "Could not get selected proxies")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error validating selected proxies: {str(e)}")
+
+    def start_validation(self, proxy_list):
+        """Start proxy validation"""
+        try:
+            if self.validation_thread and self.validation_thread.is_alive():
+                messagebox.showwarning("Warning", "Validation already in progress")
+                return
+
+            if not proxy_list:
+                messagebox.showwarning("Error", "No proxies to validate")
+                return
+
+            if not self.proxy_manager:
+                messagebox.showwarning("Error", "Proxy manager not available")
+                return
+
+            # Clear previous results
+            self.validation_text.config(state=tk.NORMAL)
+            self.validation_text.delete('1.0', tk.END)
+            self.validation_text.insert('1.0', "Starting validation...\n")
+            self.validation_text.config(state=tk.DISABLED)
+
+            # Show progress bar
+            self.validation_progress.pack(fill=tk.X, pady=(0, 10))
+            self.validation_progress_var.set(0)
+
+            # Update buttons
+            self.stop_validation_btn.config(state=tk.NORMAL)
+
+            # Start validation thread
+            self.validation_thread = ProxyValidationThread(
+                self.proxy_manager,
+                proxy_list,
+                self.on_validation_complete,
+                self.on_validation_progress
+            )
+            self.validation_thread.start()
+
+            self.status_label.config(text=f"Starting validation of {len(proxy_list)} proxies...")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error starting validation: {str(e)}")
+
+    def stop_validation(self):
+        """Stop validation"""
+        if self.validation_thread:
+            self.validation_thread.stop()
+            self.validation_thread.join(timeout=2)
+
+        self.validation_progress.pack_forget()
+        self.stop_validation_btn.config(state=tk.DISABLED)
+
+    def on_validation_complete(self, results):
+        """Callback when validation is complete"""
+        # Update UI from main thread
+        self.after(0, self._update_validation_results, results)
+
+    def _update_validation_results(self, results):
+        """Update validation results (must be called from main thread)"""
+        self.validation_progress.pack_forget()
+        self.stop_validation_btn.config(state=tk.DISABLED)
+
+        # Display results
+        result_text = "🔍 VALIDATION RESULTS\n\n"
+
+        valid_count = 0
+        for proxy_url, result in results.items():
+            status = "✅ VALID" if result['valid'] else "❌ INVALID"
+            error = result.get('error', '')
+            response_time = result.get('response_time', 0)
+
+            result_text += f"{proxy_url}: {status}"
+            if response_time > 0:
+                result_text += f" ({response_time:.0f}ms)"
+            result_text += "\n"
+
+            if error:
+                result_text += f"  Error: {error}\n"
+            if result['valid']:
+                valid_count += 1
+
+        result_text += f"\n📊 SUMMARY:\n"
+        result_text += f"  • Total validated: {len(results)}\n"
+        result_text += f"  • Valid: {valid_count}\n"
+        result_text += f"  • Invalid: {len(results) - valid_count}\n"
+
+        # Calculate speed statistics
+        valid_speeds = [result['response_time'] for result in results.values()
+                       if result['valid'] and result.get('response_time', 0) > 0]
+        if valid_speeds:
+            avg_speed = sum(valid_speeds) / len(valid_speeds)
+            min_speed = min(valid_speeds)
+            max_speed = max(valid_speeds)
+            result_text += f"\n⚡ SPEEDS:\n"
+            result_text += f"  • Average: {avg_speed:.0f}ms\n"
+            result_text += f"  • Fastest: {min_speed:.0f}ms\n"
+            result_text += f"  • Slowest: {max_speed:.0f}ms\n"
+
+        self.validation_text.config(state=tk.NORMAL)
+        self.validation_text.delete('1.0', tk.END)
+        self.validation_text.insert('1.0', result_text)
+        self.validation_text.config(state=tk.DISABLED)
+
+        self.refresh_proxy_list()  # Update table
+        self.status_label.config(text=f"Validation completed: {valid_count}/{len(results)} valid")
+
+    def on_validation_progress(self, progress, message):
+        """Callback to update validation progress"""
+        # Update UI from main thread
+        self.after(0, self._update_progress, progress, message)
+
+    def _update_progress(self, progress, message):
+        """Update progress (must be called from main thread)"""
+        self.validation_progress_var.set(progress)
+        self.status_label.config(text=message)
+
+    def refresh_statistics(self):
+        """Update statistics with detailed information"""
+        try:
+            if not self.proxy_manager:
+                self.stats_text.config(state=tk.NORMAL)
+                self.stats_text.delete('1.0', tk.END)
+                self.stats_text.insert('1.0', "❌ Proxy manager not available")
+                self.stats_text.config(state=tk.DISABLED)
+                return
+
+            stats = self.proxy_manager.get_proxy_stats()
+
+            stats_text = "📊 PROXY STATISTICS\n\n"
+
+            # General information
+            stats_text += f"📈 GENERAL:\n"
+            stats_text += f"  • Total proxies: {stats.get('total_proxies', 0)}\n"
+            stats_text += f"  • Active proxies: {stats.get('active_proxies', 0)}\n"
+            stats_text += f"  • Failed proxies: {stats.get('failed_proxies', 0)}\n"
+            stats_text += f"  • System enabled: {'✅ Yes' if self.proxy_manager.enabled else '❌ No'}\n\n"
+
+            # Current configuration
+            stats_text += f"⚙️ CURRENT CONFIGURATION:\n"
+            stats_text += f"  • Strategy: {self.proxy_manager.rotation_strategy}\n"
+            stats_text += f"  • Timeout: {self.proxy_manager.timeout}s\n"
+            stats_text += f"  • Max failures: {self.proxy_manager.max_failures}\n"
+            stats_text += f"  • Validation URL: {self.proxy_manager.validation_url}\n\n"
+
+            # Current proxy
+            current_proxy = self.proxy_manager.get_proxy()
+            if current_proxy:
+                stats_text += f"🎯 CURRENT PROXY:\n"
+                stats_text += f"  • URL: {current_proxy.url}\n"
+                stats_text += f"  • Host: {current_proxy.host}:{current_proxy.port}\n"
+                stats_text += f"  • Protocol: {current_proxy.protocol}\n"
+                stats_text += f"  • Status: {'✅ Active' if current_proxy.is_active else '❌ Inactive'}\n"
+                stats_text += f"  • Failures: {current_proxy.failure_count}\n"
+                if current_proxy.speed:
+                    stats_text += f"  • Speed: {current_proxy.speed:.0f}ms\n"
+                if current_proxy.last_used:
+                    stats_text += f"  • Last used: {current_proxy.last_used.strftime('%H:%M:%S')}\n"
+                stats_text += "\n"
+            else:
+                stats_text += f"🎯 CURRENT PROXY: None available\n\n"
+
+            # Usage statistics
+            stats_text += f"🔄 USAGE:\n"
+            stats_text += f"  • Total requests: {stats.get('total_requests', 0)}\n"
+            stats_text += f"  • Successful requests: {stats.get('successful_requests', 0)}\n"
+            stats_text += f"  • Failed requests: {stats.get('failed_requests', 0)}\n"
+            stats_text += f"  • Rotations: {stats.get('rotation_count', 0)}\n"
+
+            if stats.get('last_rotation'):
+                stats_text += f"  • Last rotation: {stats['last_rotation']}\n"
+
+            # Top proxies by speed
+            fast_proxies = [p for p in self.proxy_manager.proxies if p.speed and p.is_active]
+            if fast_proxies:
+                fast_proxies.sort(key=lambda x: x.speed)
+                stats_text += f"\n🚀 FASTEST PROXIES:\n"
+                for i, proxy in enumerate(fast_proxies[:3], 1):
+                    stats_text += f"  {i}. {proxy.host}:{proxy.port} - {proxy.speed:.0f}ms\n"
+
+            self.stats_text.config(state=tk.NORMAL)
+            self.stats_text.delete('1.0', tk.END)
+            self.stats_text.insert('1.0', stats_text)
+            self.stats_text.config(state=tk.DISABLED)
+
+            self.status_label.config(text="Statistics updated")
+
+        except Exception as e:
+            logger.error(f"Error updating statistics: {e}")
+            messagebox.showerror("Error", f"Error updating statistics: {str(e)}")
+
+    def import_from_file(self):
+        """Import proxies from file"""
+        file_path = filedialog.askopenfilename(
+            title="Select proxy file",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    proxies = [line.strip() for line in f
+                              if line.strip() and not line.startswith('#')]
+
+                count = 0
+                for proxy in proxies:
+                    self.add_single_proxy_to_manager(proxy)
+                    count += 1
+
+                messagebox.showinfo("Success", f"Imported {count} proxies from {file_path}")
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Error importing file: {str(e)}")
+
+    def import_from_text(self):
+        """Import proxies from text dialog"""
+        # Create a dialog
+        dialog = tk.Toplevel(self)
+        dialog.title("Import Proxies")
+        dialog.geometry("500x400")
+
+        ttk.Label(dialog, text="Paste a list of proxies (one per line):").pack(pady=10)
+
+        text_frame = ttk.Frame(dialog)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10)
+
+        vsb = ttk.Scrollbar(text_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        text_widget = tk.Text(text_frame, yscrollcommand=vsb.set, wrap=tk.WORD)
+        text_widget.pack(fill=tk.BOTH, expand=True)
+        vsb.config(command=text_widget.yview)
+
+        def do_import():
+            text = text_widget.get('1.0', tk.END).strip()
+            if text:
+                proxies = [line.strip() for line in text.split('\n') if line.strip()]
+
+                count = 0
+                for proxy in proxies:
+                    self.add_single_proxy_to_manager(proxy)
+                    count += 1
+
+                messagebox.showinfo("Success", f"Imported {count} proxies")
+                dialog.destroy()
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Button(btn_frame, text="Import", command=do_import).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=2)
+
+    def export_to_file(self):
+        """Export proxies to file"""
+        file_path = filedialog.asksaveasfilename(
+            title="Save proxy file",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+
+        if file_path:
+            try:
+                if not self.proxy_manager:
+                    raise Exception("Proxy manager not available")
+
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    for proxy in self.proxy_manager.proxies:
+                        f.write(f"{proxy.url}\n")
+
+                messagebox.showinfo("Success",
+                                   f"Exported {len(self.proxy_manager.proxies)} proxies to {file_path}")
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Error exporting file: {str(e)}")
+
+    def export_to_clipboard(self):
+        """Export proxies to clipboard"""
+        try:
+            if not self.proxy_manager:
+                raise Exception("Proxy manager not available")
+
+            proxy_list = '\n'.join(proxy.url for proxy in self.proxy_manager.proxies)
+
+            # Copy to clipboard
+            self.clipboard_clear()
+            self.clipboard_append(proxy_list)
+
+            messagebox.showinfo("Success",
+                               f"Copied {len(self.proxy_manager.proxies)} proxies to clipboard")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error copying to clipboard: {str(e)}")
+
+    def add_bulk_proxies(self):
+        """Add proxies in bulk"""
+        text = self.bulk_input.get('1.0', tk.END).strip()
+        if not text:
+            messagebox.showwarning("Warning", "No text to process")
+            return
+
+        proxies = [line.strip() for line in text.split('\n') if line.strip()]
+
+        count = 0
+        for proxy in proxies:
+            self.add_single_proxy_to_manager(proxy)
+            count += 1
+
+        messagebox.showinfo("Success", f"Added {count} proxies")
+        self.clear_bulk_input()
+
+    def clear_bulk_input(self):
+        """Clear bulk input"""
+        self.bulk_input.delete('1.0', tk.END)
+
+    def load_proxy_config(self):
+        """Load proxy configuration"""
+        try:
+            if self.proxy_manager:
+                # Load current configuration
+                self.enable_proxies_var.set(self.proxy_manager.enabled)
+                self.strategy_var.set(self.proxy_manager.rotation_strategy)
+                self.timeout_var.set(self.proxy_manager.timeout)
+                self.max_failures_var.set(self.proxy_manager.max_failures)
+                self.validation_url_var.set(self.proxy_manager.validation_url)
+
+        except Exception as e:
+            logger.error(f"Error loading configuration: {e}")
+
+    def test_selected_proxy(self):
+        """Test selected proxy individually"""
+        try:
+            selection = self.proxy_table.selection()
+            if not selection:
+                messagebox.showwarning("Warning", "Select a proxy to test")
+                return
+
+            item = self.proxy_table.item(selection[0])
+            proxy_url = item['values'][0]
+
+            # Find proxy object
+            proxy_obj = None
+            for proxy in self.proxy_manager.proxies:
+                if proxy.url == proxy_url:
+                    proxy_obj = proxy
+                    break
+
+            if not proxy_obj:
+                messagebox.showwarning("Error", "Selected proxy not found")
+                return
+
+            # Test proxy in thread
+            def test():
+                try:
+                    result = self.proxy_manager.validate_proxy_sync(proxy_obj)
+                    speed = proxy_obj.speed or 0
+                    self.after(0, self._show_test_result, result, proxy_url, speed)
+                except Exception as e:
+                    self.after(0, self._show_test_error, str(e), proxy_url)
+
+            thread = threading.Thread(target=test, daemon=True)
+            thread.start()
+
+            self.status_label.config(text=f"Testing proxy {proxy_url}...")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error testing proxy: {str(e)}")
+
+    def _show_test_result(self, success, proxy_url, speed):
+        """Show proxy test result"""
+        try:
+            if success:
+                speed_text = f" ({speed:.0f}ms)" if speed > 0 else ""
+                messagebox.showinfo("Proxy Test",
+                                   f"✅ Proxy works correctly\n\n"
+                                   f"URL: {proxy_url}{speed_text}\n"
+                                   f"Status: Successfully connected")
+            else:
+                messagebox.showwarning("Proxy Test",
+                                      f"❌ Proxy does not work\n\n"
+                                      f"URL: {proxy_url}\n"
+                                      f"Status: Connection failed")
+
+            self.refresh_proxy_list()
+
+        except Exception as e:
+            logger.error(f"Error showing result: {e}")
+
+    def _show_test_error(self, error, proxy_url):
+        """Show proxy test error"""
+        try:
+            messagebox.showerror("Error in Test",
+                                f"❌ Error testing proxy\n\n"
+                                f"URL: {proxy_url}\n"
+                                f"Error: {error}")
+        except Exception as e:
+            logger.error(f"Error showing error: {e}")
+
+    def show_validation_help(self):
+        """Show help about proxy validation"""
+        help_text = """🔍 VALIDATION HELP
+
+📋 HOW TO USE:
+1. Add proxies using the format: host:port or http://user:pass@host:port
+2. Select specific proxies or use "Validate All"
+3. Validation will test the connectivity of each proxy
+4. Results will show speed and status
+
+⚡ SUPPORTED FORMATS:
+• host:port (http:// is added automatically)
+• http://host:port
+• http://user:pass@host:port
+• https://host:port
+• socks5://host:port
+
+📊 RESULTS:
+• ✅ VALID: Proxy works correctly
+• ❌ INVALID: Proxy does not respond or has errors
+• Speed in ms (lower is better)
+
+🚀 TIPS:
+• Proxies < 100ms are very fast
+• Proxies > 500ms may be slow
+• Use "Test Selected" for individual tests"""
+
+        messagebox.showinfo("Help - Proxy Validation", help_text)
+
+
+# ========== END PROXY MANAGEMENT PANEL ==========
+
+
 class WebScraperApp:
     """Aplicación principal con interfaz gráfica profesional"""
     
@@ -818,13 +1841,9 @@ class WebScraperApp:
         except Exception as e:
             logger.error(f"Failed to initialize SimpleTaskScheduler: {e}")
             self.scheduler = None
-        
-        try:
-            self.plugin_manager = PluginManager(self.config_manager)
-        except Exception as e:
-            logger.error(f"Failed to initialize PluginManager: {e}")
-            self.plugin_manager = None
-        
+
+        # Plugin system removed - proxy management is now a native feature
+
         try:
             self.html_analyzer = EnhancedHTMLAnalyzer(self.config_manager)
         except Exception as e:
@@ -885,7 +1904,7 @@ class WebScraperApp:
         ttk.Button(button_frame, text="Añadir lista", command=self.show_url_list_window).pack(side=tk.LEFT, padx=2)
         ttk.Button(button_frame, text="Cargar Sesión", command=self.load_crawler_session).pack(side=tk.LEFT, padx=2)
         ttk.Button(button_frame, text="Métricas", command=self.show_metrics).pack(side=tk.LEFT, padx=2)
-        ttk.Button(button_frame, text="Plugins", command=self.show_plugins).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="Gestionar Proxies", command=self.show_proxy_management).pack(side=tk.LEFT, padx=2)
         self.cancel_button = ttk.Button(button_frame, text="Cancelar", command=self.cancel_analysis, state=tk.DISABLED)
         self.cancel_button.pack(side=tk.LEFT, padx=2)
         
@@ -3786,15 +4805,9 @@ class WebScraperApp:
                 except Exception as e:
                     logger.warning(f"Error getting ETL stats: {e}")
                     etl_stats = {"error": str(e)}
-            
-            plugin_stats = {}
-            if self.plugin_manager:
-                try:
-                    plugin_stats = self.plugin_manager.get_plugin_statistics()
-                except Exception as e:
-                    logger.warning(f"Error getting plugin stats: {e}")
-                    plugin_stats = {"error": str(e)}
-            
+
+            # Plugin system removed
+
             # Obtener métricas de selectores avanzados
             selector_stats = {}
             if hasattr(self, 'advanced_selectors') and self.advanced_selectors:
@@ -3925,28 +4938,9 @@ class WebScraperApp:
                 analysis_text.insert(tk.END, f"  - Tasa de selección: {analysis_stats.get('selection_rate', 0):.2%}\n\n")
             else:
                 analysis_text.insert(tk.END, "No hay datos de análisis disponibles\n\n")
-            
-            # Pestaña de plugins
-            plugins_frame = ttk.Frame(notebook)
-            notebook.add(plugins_frame, text="Plugins")
-            
-            plugins_text = tk.Text(plugins_frame, wrap=tk.WORD)
-            plugins_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-            
-            plugins_text.insert(tk.END, f"Estadísticas de Plugins:\n")
-            plugins_text.insert(tk.END, f"  - Total de plugins: {plugin_stats.get('total_plugins', 0)}\n")
-            plugins_text.insert(tk.END, f"  - Plugins cargados: {plugin_stats.get('loaded_plugins', 0)}\n")
-            plugins_text.insert(tk.END, f"  - Plugins habilitados: {plugin_stats.get('enabled_plugins', 0)}\n")
-            plugins_text.insert(tk.END, f"  - Plugins fallidos: {plugin_stats.get('failed_plugins', 0)}\n")
-            plugins_text.insert(tk.END, f"  - Directorio: {plugin_stats.get('plugin_directory', 'N/A')}\n")
-            plugins_text.insert(tk.END, f"  - Auto-reload: {plugin_stats.get('auto_reload', False)}\n\n")
-            
-            # Uso de hooks
-            if plugin_stats.get('hook_usage'):
-                plugins_text.insert(tk.END, "Uso de Hooks:\n")
-                for hook_name, usage in plugin_stats['hook_usage'].items():
-                    plugins_text.insert(tk.END, f"  - {hook_name}: {usage} callbacks\n")
-            
+
+            # Plugin system removed - tab removed
+
             # Botones de acción
             button_frame = ttk.Frame(metrics_window)
             button_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -4399,189 +5393,21 @@ class WebScraperApp:
             logger.error(f"Error mostrando métricas de extracción: {e}")
             messagebox.showerror("Error", f"Error mostrando métricas: {str(e)}")
 
-    def show_plugins(self):
-        """Muestra la gestión de plugins"""
-        try:
-            # Obtener información de plugins
-            plugins = self.plugin_manager.get_all_plugins()
-            
-            # Crear ventana de plugins
-            plugins_window = tk.Toplevel(self.root)
-            plugins_window.title("Gestión de Plugins")
-            plugins_window.geometry("800x600")
-            
-            # Frame principal
-            main_frame = ttk.Frame(plugins_window, padding=10)
-            main_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # Lista de plugins
-            list_frame = ttk.LabelFrame(main_frame, text="Plugins Disponibles", padding=5)
-            list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-            
-            # Treeview para plugins
-            columns = ('name', 'version', 'status', 'description')
-            plugin_tree = ttk.Treeview(list_frame, columns=columns, show='headings')
-            
-            plugin_tree.heading('name', text='Nombre')
-            plugin_tree.heading('version', text='Versión')
-            plugin_tree.heading('status', text='Estado')
-            plugin_tree.heading('description', text='Descripción')
-            
-            plugin_tree.column('name', width=150)
-            plugin_tree.column('version', width=80)
-            plugin_tree.column('status', width=100)
-            plugin_tree.column('description', width=300)
-            
-            # Insertar plugins
-            for plugin in plugins:
-                status = "Habilitado" if plugin['enabled'] else "Deshabilitado"
-                if plugin.get('error'):
-                    status = "Error"
-                
-                plugin_tree.insert('', 'end', values=(
-                    plugin['name'],
-                    plugin['version'],
-                    status,
-                    plugin['description'][:50] + '...' if len(plugin['description']) > 50 else plugin['description']
-                ))
-            
-            # Scrollbar
-            scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=plugin_tree.yview)
-            plugin_tree.configure(yscrollcommand=scrollbar.set)
-            
-            plugin_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
-            # Botones de acción
-            button_frame = ttk.Frame(main_frame)
-            button_frame.pack(fill=tk.X)
-            
-            ttk.Button(button_frame, text="Habilitar Plugin", 
-                      command=lambda: self.enable_selected_plugin(plugin_tree)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(button_frame, text="Deshabilitar Plugin", 
-                      command=lambda: self.disable_selected_plugin(plugin_tree)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(button_frame, text="Recargar Plugin", 
-                      command=lambda: self.reload_selected_plugin(plugin_tree)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(button_frame, text="Instalar Plugin", 
-                      command=self.install_plugin).pack(side=tk.LEFT, padx=2)
-            ttk.Button(button_frame, text="Exportar Info", 
-                      command=self.export_plugin_info).pack(side=tk.LEFT, padx=2)
-            ttk.Button(button_frame, text="Cerrar", 
-                      command=plugins_window.destroy).pack(side=tk.RIGHT, padx=2)
-            
-        except Exception as e:
-            logger.error(f"Error mostrando plugins: {e}")
-            messagebox.showerror("Error", f"Error mostrando plugins: {str(e)}")
+    # ========== PROXY MANAGEMENT (NATIVE FEATURE) ==========
 
-    def enable_selected_plugin(self, plugin_tree):
-        """Habilita el plugin seleccionado"""
+    def show_proxy_management(self):
+        """Muestra el panel nativo de gestión de proxies"""
         try:
-            selection = plugin_tree.selection()
-            if not selection:
-                messagebox.showwarning("Advertencia", "Selecciona un plugin para habilitar")
+            if not self.proxy_manager:
+                messagebox.showerror("Error", "Proxy manager no disponible")
                 return
-            
-            plugin_name = plugin_tree.item(selection[0])['text']
-            if self.plugin_manager:
-                success = self.plugin_manager.enable_plugin(plugin_name)
-                if success:
-                    messagebox.showinfo("Éxito", f"Plugin '{plugin_name}' habilitado")
-                    self.show_plugins()  # Actualizar vista
-                else:
-                    messagebox.showerror("Error", f"No se pudo habilitar el plugin '{plugin_name}'")
-            else:
-                messagebox.showerror("Error", "Plugin manager no disponible")
-        except Exception as e:
-            logger.error(f"Error habilitando plugin: {e}")
-            messagebox.showerror("Error", f"Error habilitando plugin: {str(e)}")
 
-    def disable_selected_plugin(self, plugin_tree):
-        """Deshabilita el plugin seleccionado"""
-        try:
-            selection = plugin_tree.selection()
-            if not selection:
-                messagebox.showwarning("Advertencia", "Selecciona un plugin para deshabilitar")
-                return
-            
-            plugin_name = plugin_tree.item(selection[0])['text']
-            if self.plugin_manager:
-                success = self.plugin_manager.disable_plugin(plugin_name)
-                if success:
-                    messagebox.showinfo("Éxito", f"Plugin '{plugin_name}' deshabilitado")
-                    self.show_plugins()  # Actualizar vista
-                else:
-                    messagebox.showerror("Error", f"No se pudo deshabilitar el plugin '{plugin_name}'")
-            else:
-                messagebox.showerror("Error", "Plugin manager no disponible")
-        except Exception as e:
-            logger.error(f"Error deshabilitando plugin: {e}")
-            messagebox.showerror("Error", f"Error deshabilitando plugin: {str(e)}")
+            # Crear ventana del panel de proxies
+            ProxyManagementPanel(self.proxy_manager, self.root)
 
-    def reload_selected_plugin(self, plugin_tree):
-        """Recarga el plugin seleccionado"""
-        try:
-            selection = plugin_tree.selection()
-            if not selection:
-                messagebox.showwarning("Advertencia", "Selecciona un plugin para recargar")
-                return
-            
-            plugin_name = plugin_tree.item(selection[0])['text']
-            if self.plugin_manager:
-                success = self.plugin_manager.reload_plugin(plugin_name)
-                if success:
-                    messagebox.showinfo("Éxito", f"Plugin '{plugin_name}' recargado")
-                    self.show_plugins()  # Actualizar vista
-                else:
-                    messagebox.showerror("Error", f"No se pudo recargar el plugin '{plugin_name}'")
-            else:
-                messagebox.showerror("Error", "Plugin manager no disponible")
         except Exception as e:
-            logger.error(f"Error recargando plugin: {e}")
-            messagebox.showerror("Error", f"Error recargando plugin: {str(e)}")
-
-    def install_plugin(self):
-        """Instala un nuevo plugin"""
-        try:
-            plugin_file = filedialog.askopenfilename(
-                title="Seleccionar archivo de plugin",
-                filetypes=[("Python files", "*.py"), ("All files", "*.*")]
-            )
-            
-            if plugin_file and self.plugin_manager:
-                success = self.plugin_manager.install_plugin(plugin_file)
-                if success:
-                    messagebox.showinfo("Éxito", "Plugin instalado correctamente")
-                    self.show_plugins()  # Actualizar vista
-                else:
-                    messagebox.showerror("Error", "No se pudo instalar el plugin")
-            elif not self.plugin_manager:
-                messagebox.showerror("Error", "Plugin manager no disponible")
-        except Exception as e:
-            logger.error(f"Error instalando plugin: {e}")
-            messagebox.showerror("Error", f"Error instalando plugin: {str(e)}")
-
-    def export_plugin_info(self):
-        """Exporta información de los plugins"""
-        try:
-            if not self.plugin_manager:
-                messagebox.showerror("Error", "Plugin manager no disponible")
-                return
-            
-            file_path = filedialog.asksaveasfilename(
-                defaultextension='.json',
-                filetypes=[("JSON files", "*.json")],
-                initialfile=f"plugin_info_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            )
-            
-            if file_path:
-                plugin_info = self.plugin_manager.get_plugin_statistics()
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(plugin_info, f, ensure_ascii=False, indent=2)
-                
-                messagebox.showinfo("Éxito", f"Información de plugins exportada a:\n{file_path}")
-        except Exception as e:
-            logger.error(f"Error exportando información de plugins: {e}")
-            messagebox.showerror("Error", f"Error exportando información: {str(e)}")
+            logger.error(f"Error mostrando gestión de proxies: {e}")
+            messagebox.showerror("Error", f"Error mostrando gestión de proxies: {str(e)}")
 
     def set_light_theme(self):
         """Configura un tema claro para la interfaz y ajusta colores de widgets y tags."""

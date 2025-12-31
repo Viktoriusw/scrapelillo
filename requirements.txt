@@ -18,7 +18,7 @@ requests-cache==1.1.1
 redis==5.0.1
 
 # Structured data extraction
-extruct==0.16.0
+extruct==0.18.0
 
 # Database support
 sqlalchemy==2.0.23
