@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 class Proxy:
     """Proxy configuration"""
     url: str
-    protocol: str
-    host: str
-    port: int
+    protocol: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
     username: Optional[str] = None
     password: Optional[str] = None
     country: Optional[str] = None
@@ -39,19 +39,34 @@ class Proxy:
     failure_count: int = 0
     last_failure: Optional[datetime] = None
     is_active: bool = True
-    
+
     def __post_init__(self):
         """Parse URL and extract components"""
-        if not hasattr(self, 'parsed_url'):
+        # Parse URL if not already parsed
+        parsed = urlparse(self.url)
+
+        # If no scheme, it means format is IP:port, add http://
+        if not parsed.scheme:
+            self.url = f"http://{self.url}"
             parsed = urlparse(self.url)
-            self.protocol = parsed.scheme
-            self.host = parsed.hostname
-            self.port = parsed.port or (8080 if self.protocol == 'http' else 1080)
-            
-            if parsed.username:
-                self.username = parsed.username
-            if parsed.password:
-                self.password = parsed.password
+
+        self.protocol = parsed.scheme or 'http'
+        self.host = parsed.hostname
+        self.port = parsed.port
+
+        # Set default ports if not specified
+        if not self.port:
+            if self.protocol in ('http', 'https'):
+                self.port = 8080 if self.protocol == 'http' else 443
+            elif self.protocol in ('socks4', 'socks5'):
+                self.port = 1080
+            else:
+                self.port = 8080  # Default fallback
+
+        if parsed.username:
+            self.username = parsed.username
+        if parsed.password:
+            self.password = parsed.password
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -424,7 +439,50 @@ class ProxyManager:
         except Exception as e:
             logger.error(f"Error validating proxy {proxy.url}: {e}")
             return False
-    
+
+    def validate_proxy_sync(self, proxy: Proxy) -> bool:
+        """
+        Validate proxy synchronously (blocking)
+
+        Args:
+            proxy: Proxy to validate
+
+        Returns:
+            True if proxy is working, False otherwise
+        """
+        if not self.enabled:
+            return True
+
+        try:
+            import time
+            start_time = time.time()
+
+            proxy_dict = {
+                'http': proxy.url,
+                'https': proxy.url
+            }
+
+            response = requests.get(
+                self.validation_url,
+                proxies=proxy_dict,
+                timeout=self.timeout
+            )
+
+            # Calculate response time
+            response_time = (time.time() - start_time) * 1000  # in milliseconds
+            proxy.speed = response_time
+
+            if response.status_code == 200:
+                logger.debug(f"Proxy {proxy.url} validation successful ({response_time:.0f}ms)")
+                return True
+            else:
+                logger.warning(f"Proxy {proxy.url} validation failed: status {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.warning(f"Proxy {proxy.url} validation failed: {e}")
+            return False
+
     def add_proxy(self, proxy_url: str, **kwargs) -> bool:
         """
         Add a new proxy
