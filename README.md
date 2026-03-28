@@ -336,18 +336,6 @@ Solución: pip install -r requirements.txt
 
 Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
 
-## 🆘 Soporte
-
-### Canales de Ayuda
-- **Issues**: Reportar bugs en GitHub
-- **Documentación**: Guías detalladas en `/docs`
-- **Ejemplos**: Código de ejemplo en `/examples`
-- **Wiki**: Preguntas frecuentes y tutoriales
-
-### Contacto
-- **Email**: soporte@scrapelillo.com
-- **Discord**: Comunidad de desarrolladores
-- **Telegram**: Canal de notificaciones
 
 ## 🔄 Changelog
 
